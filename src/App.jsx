@@ -118,6 +118,8 @@ export default function GraisePPR() {
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [editingMatch, setEditingMatch] = useState(null);
+  const [newPlayerAlias, setNewPlayerAlias] = useState('');
+  const [editingPlayer, setEditingPlayer] = useState(null);
 
   // Fetch data from Supabase
   useEffect(() => {
@@ -386,9 +388,9 @@ export default function GraisePPR() {
     });
   }, [leaderboard, history]);
 
-  const validatePlayerName = (name) => {
+  const validatePlayerName = (name, excludeId = null) => {
     const trimmed = name.trim().toLowerCase();
-    const exists = players.some(p => p.name.toLowerCase() === trimmed);
+    const exists = players.some(p => p.name.toLowerCase() === trimmed && p.id !== excludeId);
     if (exists) {
       setPlayerNameError('A player with this name already exists');
       return false;
@@ -398,13 +400,24 @@ export default function GraisePPR() {
   };
 
   const addPlayer = async () => {
-    const trimmed = newPlayerName.trim();
-    if (trimmed && validatePlayerName(trimmed)) {
-      console.log('Attempting to add player:', trimmed);
+    // Strip @ and everything after from the name
+    let trimmedName = newPlayerName.trim();
+    if (trimmedName.includes('@')) {
+      trimmedName = trimmedName.split('@')[0].trim();
+    }
+    const trimmedAlias = newPlayerAlias.trim();
+    
+    if (!trimmedName || !trimmedAlias) {
+      alert('Both name and alias are required');
+      return;
+    }
+    
+    if (trimmedName && trimmedAlias && validatePlayerName(trimmedName)) {
+      console.log('Attempting to add player:', trimmedName, 'alias:', trimmedAlias);
       
       const { data, error } = await supabase
         .from('players')
-        .insert([{ name: trimmed }])
+        .insert([{ name: trimmedName, alias: trimmedAlias }])
         .select();
       
       if (error) {
@@ -415,6 +428,7 @@ export default function GraisePPR() {
       
       if (data) {
         setNewPlayerName('');
+        setNewPlayerAlias('');
         setPlayerNameError('');
         setShowAddPlayer(false);
         fetchPlayers();
@@ -518,6 +532,52 @@ export default function GraisePPR() {
         fetchMatches();
         setEditingMatch(null);
       }
+    }
+  };
+
+  const deletePlayer = async (playerId) => {
+    if (isAdmin) {
+      // Check if player has any matches
+      const playerMatches = matches.filter(m => m.player1_id === playerId || m.player2_id === playerId);
+      if (playerMatches.length > 0) {
+        if (!confirm(`This player has ${playerMatches.length} matches. Deleting will also delete all their matches. Continue?`)) {
+          return;
+        }
+      }
+      
+      const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId);
+      
+      if (error) {
+        console.error('Error deleting player:', error);
+        alert('Error deleting player: ' + error.message);
+      } else {
+        fetchPlayers();
+        fetchMatches();
+        setSelectedPlayer(null);
+      }
+    }
+  };
+
+  const updatePlayer = async (playerId, updates) => {
+    // Validate name if being changed
+    if (updates.name && !validatePlayerName(updates.name, playerId)) {
+      return;
+    }
+    
+    const { error } = await supabase
+      .from('players')
+      .update(updates)
+      .eq('id', playerId);
+    
+    if (error) {
+      console.error('Error updating player:', error);
+      alert('Error updating player: ' + error.message);
+    } else {
+      fetchPlayers();
+      setEditingPlayer(null);
     }
   };
 
@@ -849,9 +909,10 @@ export default function GraisePPR() {
             width: '90%'
           }}>
             <h3 style={{ margin: '0 0 20px', color: '#00ff88', letterSpacing: '2px' }}>NEW PLAYER</h3>
+            <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>NAME *</label>
             <input
               type="text"
-              placeholder="Enter name..."
+              placeholder="Enter name (@ will be stripped)..."
               value={newPlayerName}
               onChange={(e) => {
                 setNewPlayerName(e.target.value);
@@ -866,7 +927,7 @@ export default function GraisePPR() {
                 color: '#fff',
                 fontFamily: 'inherit',
                 fontSize: '14px',
-                marginBottom: playerNameError ? '8px' : '20px',
+                marginBottom: playerNameError ? '8px' : '15px',
                 boxSizing: 'border-box'
               }}
             />
@@ -875,8 +936,26 @@ export default function GraisePPR() {
                 {playerNameError}
               </div>
             )}
+            <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>ALIAS *</label>
+            <input
+              type="text"
+              placeholder="Enter alias (e.g. nickname)..."
+              value={newPlayerAlias}
+              onChange={(e) => setNewPlayerAlias(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#0a0a0a',
+                border: '1px solid #444',
+                color: '#fff',
+                fontFamily: 'inherit',
+                fontSize: '14px',
+                marginBottom: '20px',
+                boxSizing: 'border-box'
+              }}
+            />
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setShowAddPlayer(false); setNewPlayerName(''); setPlayerNameError(''); }} style={{
+              <button onClick={() => { setShowAddPlayer(false); setNewPlayerName(''); setNewPlayerAlias(''); setPlayerNameError(''); }} style={{
                 flex: 1, padding: '10px', background: 'transparent', border: '1px solid #444',
                 color: '#bbb', fontFamily: 'inherit', cursor: 'pointer'
               }}>Cancel</button>
@@ -1088,6 +1167,90 @@ export default function GraisePPR() {
         </div>
       )}
 
+      {/* Edit Player Modal */}
+      {editingPlayer && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: '#1a1a2e',
+            padding: '30px',
+            border: '1px solid #ff8800',
+            maxWidth: '400px',
+            width: '90%'
+          }}>
+            <h3 style={{ margin: '0 0 20px', color: '#ff8800', letterSpacing: '2px' }}>EDIT PLAYER (ADMIN)</h3>
+            
+            <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>NAME *</label>
+            <input
+              type="text"
+              value={editingPlayer.name}
+              onChange={(e) => setEditingPlayer({...editingPlayer, name: e.target.value})}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#0a0a0a',
+                border: '1px solid #444',
+                color: '#fff',
+                fontFamily: 'inherit',
+                fontSize: '14px',
+                marginBottom: '15px',
+                boxSizing: 'border-box'
+              }}
+            />
+            
+            <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>ALIAS *</label>
+            <input
+              type="text"
+              value={editingPlayer.alias || ''}
+              onChange={(e) => setEditingPlayer({...editingPlayer, alias: e.target.value})}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#0a0a0a',
+                border: '1px solid #444',
+                color: '#fff',
+                fontFamily: 'inherit',
+                fontSize: '14px',
+                marginBottom: '20px',
+                boxSizing: 'border-box'
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setEditingPlayer(null)} style={{
+                flex: 1, padding: '10px', background: 'transparent', border: '1px solid #444',
+                color: '#bbb', fontFamily: 'inherit', cursor: 'pointer'
+              }}>Cancel</button>
+              <button 
+                onClick={() => {
+                  if (!editingPlayer.name.trim() || !editingPlayer.alias?.trim()) {
+                    alert('Both name and alias are required');
+                    return;
+                  }
+                  updatePlayer(editingPlayer.id, { 
+                    name: editingPlayer.name.trim(), 
+                    alias: editingPlayer.alias.trim() 
+                  });
+                }} 
+                style={{
+                  flex: 1, padding: '10px', background: '#ff8800', border: 'none',
+                  color: '#000', fontFamily: 'inherit', cursor: 'pointer', fontWeight: '700'
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Player Profile View */}
       {selectedPlayer && (
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -1109,6 +1272,7 @@ export default function GraisePPR() {
 
           {(() => {
             const player = leaderboard.find(p => p.id === selectedPlayer);
+            const fullPlayer = players.find(p => p.id === selectedPlayer);
             const rank = leaderboard.findIndex(p => p.id === selectedPlayer);
             const badge = getRankBadge(rank);
             const playerHistory = history[selectedPlayer] || [];
@@ -1143,7 +1307,12 @@ export default function GraisePPR() {
                     <div style={{ fontSize: '12px', color: '#bbb', letterSpacing: '2px', marginBottom: '5px' }}>
                       #{rank + 1} • {badge.label}
                     </div>
-                    <h2 style={{ margin: '0 0 10px', fontSize: '32px', color: '#fff' }}>{player.name}</h2>
+                    <h2 style={{ margin: '0 0 5px', fontSize: '32px', color: '#fff' }}>{player.name}</h2>
+                    {fullPlayer?.alias && (
+                      <div style={{ fontSize: '16px', color: '#9aa', marginBottom: '10px', fontStyle: 'italic' }}>
+                        aka "{fullPlayer.alias}"
+                      </div>
+                    )}
                     <div style={{
                       fontSize: '48px',
                       fontWeight: '700',
@@ -1153,6 +1322,44 @@ export default function GraisePPR() {
                     }}>
                       {player.rating} PPR
                     </div>
+                    {isAdmin && (
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                        <button
+                          onClick={() => setEditingPlayer({ ...fullPlayer })}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'transparent',
+                            border: '1px solid #ff8800',
+                            color: '#ff8800',
+                            fontFamily: 'inherit',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            letterSpacing: '1px'
+                          }}
+                        >
+                          EDIT PLAYER
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete ${player.name}? This cannot be undone.`)) {
+                              deletePlayer(player.id);
+                            }
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'transparent',
+                            border: '1px solid #ff4444',
+                            color: '#ff4444',
+                            fontFamily: 'inherit',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            letterSpacing: '1px'
+                          }}
+                        >
+                          DELETE PLAYER
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
                     <div style={{ color: '#bbb', fontSize: '12px', marginBottom: '5px' }}>Record (Games)</div>
