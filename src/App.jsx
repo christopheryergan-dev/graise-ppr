@@ -155,7 +155,11 @@ export default function GraisePPR() {
       .from('players')
       .select('*')
       .order('created_at', { ascending: true });
-    if (!error && data) setPlayers(data);
+    
+    if (error) {
+      console.error('Error fetching players:', error);
+    }
+    if (data) setPlayers(data);
   };
 
   const fetchMatches = async () => {
@@ -163,7 +167,11 @@ export default function GraisePPR() {
       .from('matches')
       .select('*')
       .order('date', { ascending: true });
-    if (!error && data) setMatches(data);
+    
+    if (error) {
+      console.error('Error fetching matches:', error);
+    }
+    if (data) setMatches(data);
   };
 
   const { ratings, history } = useMemo(() => processMatches(matches, players), [matches, players]);
@@ -340,26 +348,39 @@ export default function GraisePPR() {
     return { topGainerWeek, topGainerMonth, hotStreak, longestStreak, biggestUpset, mostActive, allStreaks };
   }, [matches, players, ratings]);
 
-  // All-time PPR chart data (top 8 players)
+  // All-time PPR chart data (top 8 players) - only show from first match
   const allTimePPRData = useMemo(() => {
     const top8 = leaderboard.slice(0, 8);
-    const allDates = new Set(['Start']);
+    
+    // Get first match date for each player
+    const playerFirstMatch = {};
     top8.forEach(p => {
-      (history[p.id] || []).forEach(h => allDates.add(h.date));
+      const playerHistory = history[p.id] || [];
+      const firstRealMatch = playerHistory.find(h => h.date !== 'Start');
+      playerFirstMatch[p.id] = firstRealMatch?.date || null;
     });
     
-    const sortedDates = Array.from(allDates).sort((a, b) => {
-      if (a === 'Start') return -1;
-      if (b === 'Start') return 1;
-      return new Date(a) - new Date(b);
+    // Collect all unique dates
+    const allDates = new Set();
+    top8.forEach(p => {
+      (history[p.id] || []).forEach(h => {
+        if (h.date !== 'Start') allDates.add(h.date);
+      });
     });
+    
+    const sortedDates = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
     
     return sortedDates.map(date => {
       const point = { date };
       top8.forEach(p => {
         const playerHistory = history[p.id] || [];
-        const entry = [...playerHistory].reverse().find(h => h.date <= date || h.date === 'Start');
-        point[p.name] = entry?.rating || 1500;
+        // Only include data if this date is on or after player's first match
+        if (playerFirstMatch[p.id] && date >= playerFirstMatch[p.id]) {
+          const entry = [...playerHistory].reverse().find(h => h.date <= date && h.date !== 'Start');
+          point[p.name] = entry?.rating || null;
+        } else {
+          point[p.name] = null; // null values won't be plotted
+        }
       });
       return point;
     });
@@ -379,11 +400,20 @@ export default function GraisePPR() {
   const addPlayer = async () => {
     const trimmed = newPlayerName.trim();
     if (trimmed && validatePlayerName(trimmed)) {
-      const { error } = await supabase
-        .from('players')
-        .insert([{ name: trimmed }]);
+      console.log('Attempting to add player:', trimmed);
       
-      if (!error) {
+      const { data, error } = await supabase
+        .from('players')
+        .insert([{ name: trimmed }])
+        .select();
+      
+      if (error) {
+        console.error('Supabase error:', error);
+        alert('Error adding player: ' + error.message);
+        return;
+      }
+      
+      if (data) {
         setNewPlayerName('');
         setPlayerNameError('');
         setShowAddPlayer(false);
@@ -401,6 +431,13 @@ export default function GraisePPR() {
       const p1Before = Math.round(ratings[newMatch.player1_id] || 1500);
       const p2Before = Math.round(ratings[newMatch.player2_id] || 1500);
       
+      console.log('Attempting to insert match:', {
+        player1_id: newMatch.player1_id,
+        player2_id: newMatch.player2_id,
+        player1_wins: p1Wins,
+        player2_wins: p2Wins
+      });
+      
       const { data, error } = await supabase
         .from('matches')
         .insert([{
@@ -412,7 +449,13 @@ export default function GraisePPR() {
         }])
         .select();
       
-      if (!error && data) {
+      if (error) {
+        console.error('Supabase error:', error);
+        alert('Error recording match: ' + error.message);
+        return;
+      }
+      
+      if (data) {
         // Fetch updated matches to calculate new ratings
         await fetchMatches();
         
@@ -1226,16 +1269,16 @@ export default function GraisePPR() {
                 {playerStreak && (
                   <div style={{
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '6px',
-                    marginRight: '20px',
+                    justifyContent: 'center',
+                    marginRight: '25px',
                     color: '#ff8800',
-                    fontSize: '16px',
-                    fontWeight: '600'
+                    textAlign: 'center'
                   }}>
-                    <span style={{ fontSize: '22px' }}>🔥</span>
-                    <span>{playerStreak.streak} straight matches</span>
-                    <span style={{ color: '#00ff88', fontSize: '14px' }}>(+{playerStreak.pprGained} PPR)</span>
+                    <span style={{ fontSize: '24px', marginBottom: '2px' }}>🔥</span>
+                    <span style={{ fontSize: '14px', fontWeight: '600' }}>{playerStreak.streak} straight</span>
+                    <span style={{ color: '#00ff88', fontSize: '12px' }}>+{playerStreak.pprGained} PPR</span>
                   </div>
                 )}
                 <div style={{
@@ -1452,6 +1495,7 @@ export default function GraisePPR() {
                       stroke={PLAYER_COLORS[idx]} 
                       strokeWidth={2} 
                       dot={false}
+                      connectNulls={false}
                     />
                   ))}
                 </LineChart>
