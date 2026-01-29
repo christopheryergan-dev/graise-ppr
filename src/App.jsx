@@ -400,12 +400,12 @@ export default function GraisePPR() {
   };
 
   const addPlayer = async () => {
-    // Strip @ and everything after from the name
-    let trimmedName = newPlayerName.trim();
-    if (trimmedName.includes('@')) {
-      trimmedName = trimmedName.split('@')[0].trim();
+    const trimmedName = newPlayerName.trim();
+    // Strip @ and everything after from the alias
+    let trimmedAlias = newPlayerAlias.trim();
+    if (trimmedAlias.includes('@')) {
+      trimmedAlias = trimmedAlias.split('@')[0].trim();
     }
-    const trimmedAlias = newPlayerAlias.trim();
     
     if (!trimmedName || !trimmedAlias) {
       alert('Both name and alias are required');
@@ -912,7 +912,7 @@ export default function GraisePPR() {
             <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>NAME *</label>
             <input
               type="text"
-              placeholder="Enter name (@ will be stripped)..."
+              placeholder="Enter name..."
               value={newPlayerName}
               onChange={(e) => {
                 setNewPlayerName(e.target.value);
@@ -939,7 +939,7 @@ export default function GraisePPR() {
             <label style={{ display: 'block', marginBottom: '8px', color: '#bbb', fontSize: '12px', letterSpacing: '1px' }}>ALIAS *</label>
             <input
               type="text"
-              placeholder="Enter alias (e.g. nickname)..."
+              placeholder="Enter alias (@ will be stripped)..."
               value={newPlayerAlias}
               onChange={(e) => setNewPlayerAlias(e.target.value)}
               style={{
@@ -1309,8 +1309,8 @@ export default function GraisePPR() {
                     </div>
                     <h2 style={{ margin: '0 0 5px', fontSize: '32px', color: '#fff' }}>{player.name}</h2>
                     {fullPlayer?.alias && (
-                      <div style={{ fontSize: '16px', color: '#9aa', marginBottom: '10px', fontStyle: 'italic' }}>
-                        aka "{fullPlayer.alias}"
+                      <div style={{ fontSize: '14px', color: '#9aa', marginBottom: '10px' }}>
+                        alias: {fullPlayer.alias.toLowerCase()}
                       </div>
                     )}
                     <div style={{
