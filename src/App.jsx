@@ -72,7 +72,7 @@ const processMatches = (matches, players) => {
 };
 
 const fmtDate = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
-const fmtDT = d => {const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
+const fmtDT = d => {const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'})+' '+dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Los_Angeles'});};
 const getMomentum = (pid,sorted) => { const r=[]; for(let i=sorted.length-1;i>=0&&r.length<5;i--){const m=sorted[i];if(m.player1_id===pid)r.unshift(m.player1_wins>m.player2_wins?'W':'L');else if(m.player2_id===pid)r.unshift(m.player2_wins>m.player1_wins?'W':'L');} return r; };
 const getStreak = (pid,sorted) => { let s=0; for(let i=sorted.length-1;i>=0;i--){const m=sorted[i];const i1=m.player1_id===pid,i2=m.player2_id===pid;if(!i1&&!i2)continue;if(i1?m.player1_wins>m.player2_wins:m.player2_wins>m.player1_wins)s++;else break;} return s; };
 
@@ -129,10 +129,10 @@ const calcFunStats = (matches, players, ratings, leaderboard, sortedMatches) => 
     for(let i=0;i<m.player2_wins;i++){const e=calcExp(tempR[m.player2_id],tempR[m.player1_id]);const d=Math.round(K_FACTOR*(1-e));tempR[m.player2_id]+=d;tempR[m.player1_id]-=d;}
   });
   const pairs={};
-  sorted.forEach(m=>{const k=[m.player1_id,m.player2_id].sort().join('-');pairs[k]=(pairs[k]||0)+1;});
+  sorted.forEach(m=>{const k=[m.player1_id,m.player2_id].sort().join('|');pairs[k]=(pairs[k]||0)+1;});
   const uniquePairs = Object.keys(pairs).length;
   let nemesis=null;
-  Object.entries(pairs).forEach(([k,ct])=>{if(!nemesis||ct>nemesis.count){const[a,b]=k.split('-');nemesis={p1:players.find(p=>p.id===a),p2:players.find(p=>p.id===b),count:ct};}});
+  Object.entries(pairs).forEach(([k,ct])=>{if(!nemesis||ct>nemesis.count){const[a,b]=k.split('|');nemesis={p1:players.find(p=>p.id===a),p2:players.find(p=>p.id===b),count:ct};}});
   const shutouts={};
   sorted.forEach(m=>{
     if(m.player2_wins===0&&m.player1_wins>0) shutouts[m.player1_id]=(shutouts[m.player1_id]||0)+1;
@@ -265,12 +265,15 @@ export default function App() {
   const {ratings,history,sortedMatches} = useMemo(()=>processMatches(matches,players),[matches,players]);
   const isComboTaken = (a,b,excl) => players.some(p=>p.id!==excl&&p.avatar===a&&p.avatar_bg===b);
 
-  // (1) Show ALL registered players, not just those with matches
+  // (1) Show ALL registered players; (3) track GAME wins/losses
   const leaderboard = useMemo(()=>
     players.map(p=>{
-      const w=sortedMatches.filter(m=>(m.player1_id===p.id&&m.player1_wins>m.player2_wins)||(m.player2_id===p.id&&m.player2_wins>m.player1_wins)).length;
-      const l=sortedMatches.filter(m=>(m.player1_id===p.id&&m.player1_wins<m.player2_wins)||(m.player2_id===p.id&&m.player2_wins<m.player1_wins)).length;
-      return {...p,rating:ratings[p.id]||1500,wins:w,losses:l,totalMatches:w+l};
+      let gw=0,gl=0,mt=0;
+      sortedMatches.forEach(m=>{
+        if(m.player1_id===p.id){gw+=m.player1_wins;gl+=m.player2_wins;mt++;}
+        else if(m.player2_id===p.id){gw+=m.player2_wins;gl+=m.player1_wins;mt++;}
+      });
+      return {...p,rating:ratings[p.id]||1500,wins:gw,losses:gl,totalMatches:mt};
     }).sort((a,b)=>b.rating===a.rating?(b.totalMatches-a.totalMatches):b.rating-a.rating)
   ,[players,ratings,sortedMatches]);
 
@@ -363,8 +366,8 @@ export default function App() {
   // (9) Higher contrast styles
   const card={background:'#111',border:'1px solid #222',borderRadius:'14px',padding:'20px',marginBottom:'12px'};
   const cardH={fontSize:'11px',fontWeight:600,letterSpacing:'0.08em',color:'#666',textTransform:'uppercase',marginBottom:'14px'};
-  const overlay={position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',backdropFilter:'blur(8px)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:999};
-  const mdl={background:'#151515',borderRadius:'20px 20px 0 0',padding:'28px 24px 40px',width:'100%',maxWidth:'520px',maxHeight:'85vh',overflowY:'auto',animation:'slideUp .25s ease-out'};
+  const overlay={position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',backdropFilter:'blur(8px)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999};
+  const mdl={background:'#151515',borderRadius:'20px',padding:'28px 24px 40px',width:'100%',maxWidth:'520px',maxHeight:'85vh',overflowY:'auto',animation:'slideUp .25s ease-out',margin:'0 16px'};
   const inp={width:'100%',padding:'12px 16px',borderRadius:'10px',border:'1px solid #333',background:'#0a0a0a',color:'#e5e5e5',fontSize:'15px',outline:'none',fontFamily:'inherit',boxSizing:'border-box'};
   const sel={...inp,appearance:'none',backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,backgroundRepeat:'no-repeat',backgroundPosition:'right 14px center',paddingRight:'36px'};
   const btn1={width:'100%',padding:'14px',borderRadius:'12px',border:'none',background:'#fff',color:'#000',fontSize:'15px',fontWeight:600,cursor:'pointer',fontFamily:'inherit'};
@@ -378,8 +381,7 @@ export default function App() {
     const p={...sp,rating:ratings[sp.id]||1500};
     const ph=history[p.id]||[];const momentum=getMomentum(p.id,sortedMatches);const streak=getStreak(p.id,sortedMatches);
     const pm=sortedMatches.filter(m=>m.player1_id===p.id||m.player2_id===p.id).reverse();
-    const w=pm.filter(m=>(m.player1_id===p.id&&m.player1_wins>m.player2_wins)||(m.player2_id===p.id&&m.player2_wins>m.player1_wins)).length;
-    const l=pm.length-w;const rank=leaderboard.findIndex(x=>x.id===p.id)+1;const ti=p.totalMatches>0||pm.length>0?getTitleForRank(rank,leaderboard.length):{title:'New Player',color:'#444'};
+    let w=0,l=0; pm.forEach(m=>{if(m.player1_id===p.id){w+=m.player1_wins;l+=m.player2_wins;}else{w+=m.player2_wins;l+=m.player1_wins;}});const rank=leaderboard.findIndex(x=>x.id===p.id)+1;const ti=p.totalMatches>0||pm.length>0?getTitleForRank(rank,leaderboard.length):{title:'New Player',color:'#444'};
     // (6) Head to head by GAMES
     const opps={};pm.forEach(m=>{const oid=m.player1_id===p.id?m.player2_id:m.player1_id;if(!opps[oid])opps[oid]={wins:0,losses:0};const gw=m.player1_id===p.id?m.player1_wins:m.player2_wins;const gl=m.player1_id===p.id?m.player2_wins:m.player1_wins;opps[oid].wins+=gw;opps[oid].losses+=gl;});
 
@@ -402,7 +404,7 @@ export default function App() {
           <div style={{display:'flex',justifyContent:'center',gap:'32px',marginTop:'20px'}}>
             <div><div style={{fontSize:'20px',fontWeight:500,color:'#34d399'}}>{w}</div><div style={{fontSize:'11px',color:'#666'}}>wins</div></div>
             <div><div style={{fontSize:'20px',fontWeight:500,color:'#f87171'}}>{l}</div><div style={{fontSize:'11px',color:'#666'}}>losses</div></div>
-            <div><div style={{fontSize:'20px',fontWeight:500}}>{pm.length>0?Math.round(w/pm.length*100):0}%</div><div style={{fontSize:'11px',color:'#666'}}>win rate</div></div>
+            <div><div style={{fontSize:'20px',fontWeight:500}}>{w+l>0?Math.round(w/(w+l)*100):0}%</div><div style={{fontSize:'11px',color:'#666'}}>win rate</div></div>
           </div>
           {momentum.length>0&&<div style={{display:'flex',justifyContent:'center',gap:'4px',marginTop:'16px',alignItems:'center'}}><span style={{fontSize:'11px',color:'#666',marginRight:'6px'}}>Last {momentum.length}</span><MomentumDots results={momentum}/></div>}
           {streak>=3&&<div style={{marginTop:'10px',fontSize:'13px',color:'#f97316'}}>🔥 {streak} straight wins</div>}
